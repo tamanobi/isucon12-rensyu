@@ -1203,7 +1203,8 @@ async fn competition_score_handler(
     }
 
     // DELETEしたタイミングで参照が来ると空っぽのランキングになるのでロックする
-    let _fl = flock_by_tenant_id(v.tenant_id).await?;
+    // let _fl = flock_by_tenant_id(v.tenant_id).await?;
+    let mut tx = tenant_db.begin().await?;
     let mut player_score_rows: Vec<PlayerScoreRow> = Vec::new();
     for (row_num, row) in rdr.into_records().enumerate() {
         let row = row?;
@@ -1214,7 +1215,7 @@ async fn competition_score_handler(
         };
         let player_id = &row[0];
         let score_str = &row[1];
-        if retrieve_player(&mut tenant_db, player_id).await?.is_none() {
+        if retrieve_player(&mut tx, player_id).await?.is_none() {
             // 存在しない参加者が含まれている
             return Err(Error::Custom(
                 StatusCode::BAD_REQUEST,
@@ -1250,7 +1251,7 @@ async fn competition_score_handler(
     sqlx::query("DELETE FROM player_score WHERE tenant_id = ? AND competition_id = ?")
         .bind(v.tenant_id)
         .bind(&competition_id)
-        .execute(&mut tenant_db)
+        .execute(&mut tx)
         .await?;
 
     let rows = player_score_rows.len() as i64;
@@ -1264,9 +1265,11 @@ async fn competition_score_handler(
             .bind(ps.row_num)
             .bind(ps.created_at)
             .bind(ps.updated_at)
-            .execute(&mut tenant_db)
+            .execute(&mut tx)
             .await?;
     }
+
+    tx.commit().await?;
 
     Ok(HttpResponse::Ok().json(SuccessResult {
         status: true,
