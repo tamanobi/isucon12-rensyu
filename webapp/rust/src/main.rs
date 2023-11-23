@@ -21,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tracing::error;
 use tracing_subscriber::prelude::*;
+use uuid::Uuid;
 
 const TENANT_DB_SCHEMA_FILE_PATH: &str = "../sql/tenant/10_schema.sql";
 const INITIALIZE_SCRIPT: &str = "../sql/init.sh";
@@ -136,30 +137,32 @@ async fn create_tenant_db(id: i64) -> Result<(), Error> {
 
 // システム全体で一意なIDを生成する
 async fn dispense_id(admin_db: &sqlx::MySqlPool) -> sqlx::Result<String> {
-    let mut last_err = None;
-    for _ in 1..100 {
-        match sqlx::query("REPLACE INTO id_generator (stub) VALUES (?);")
-            .bind("a")
-            .execute(admin_db)
-            .await
-        {
-            Ok(ret) => return Ok(format!("{:x}", ret.last_insert_id())),
-            Err(e) => {
-                if let Some(database_error) = e.as_database_error() {
-                    if let Some(merr) = database_error.try_downcast_ref::<MySqlDatabaseError>() {
-                        if merr.number() == 1213 {
-                            // deadlock
-                            last_err = Some(e);
-                            continue;
-                        }
-                    }
-                }
-                return Err(e);
-            }
-        }
-    }
+    Uuid::new_v4()
 
-    Err(last_err.unwrap())
+    // let mut last_err = None;
+    // for _ in 1..100 {
+    //     match sqlx::query("REPLACE INTO id_generator (stub) VALUES (?);")
+    //         .bind("a")
+    //         .execute(admin_db)
+    //         .await
+    //     {
+    //         Ok(ret) => return Ok(format!("{:x}", ret.last_insert_id())),
+    //         Err(e) => {
+    //             if let Some(database_error) = e.as_database_error() {
+    //                 if let Some(merr) = database_error.try_downcast_ref::<MySqlDatabaseError>() {
+    //                     if merr.number() == 1213 {
+    //                         // deadlock
+    //                         last_err = Some(e);
+    //                         continue;
+    //                     }
+    //                 }
+    //             }
+    //             return Err(e);
+    //         }
+    //     }
+    // }
+
+    // Err(last_err.unwrap())
 }
 
 #[actix_web::main]
@@ -1256,7 +1259,9 @@ async fn competition_score_handler(
         .await?;
 
     let rows = player_score_rows.len() as i64;
-    // for ps in player_score_rows {
+    // for ps in &player_score_rows {
+    //     println!("{:?}", ps);
+    // }
     //     sqlx::query("INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     //         .bind(ps.id)
     //         .bind(ps.tenant_id)
@@ -1290,6 +1295,8 @@ async fn competition_score_handler(
 
     let query = format!("INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES {}", values_clause);
     sqlx::query(&query).execute(&mut tx).await?;
+
+    // println!("{}", query);
 
     tx.commit().await?;
 
