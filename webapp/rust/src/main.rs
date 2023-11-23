@@ -1256,19 +1256,40 @@ async fn competition_score_handler(
         .await?;
 
     let rows = player_score_rows.len() as i64;
-    for ps in player_score_rows {
-        sqlx::query("INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-            .bind(ps.id)
-            .bind(ps.tenant_id)
-            .bind(ps.player_id)
-            .bind(ps.competition_id)
-            .bind(ps.score)
-            .bind(ps.row_num)
-            .bind(ps.created_at)
-            .bind(ps.updated_at)
-            .execute(&mut tx)
-            .await?;
-    }
+    // for ps in player_score_rows {
+    //     sqlx::query("INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    //         .bind(ps.id)
+    //         .bind(ps.tenant_id)
+    //         .bind(ps.player_id)
+    //         .bind(ps.competition_id)
+    //         .bind(ps.score)
+    //         .bind(ps.row_num)
+    //         .bind(ps.created_at)
+    //         .bind(ps.updated_at)
+    //         .execute(&mut tx)
+    //         .await?;
+    // }
+
+    let values_clause: String = player_score_rows
+        .iter()
+        .map(|ps| {
+            format!(
+                "({}, {}, {}, {}, {}, {}, {}, {})",
+                ps.id,
+                ps.tenant_id,
+                ps.player_id,
+                ps.competition_id,
+                ps.score,
+                ps.row_num,
+                ps.created_at,
+                ps.updated_at
+            )
+        })
+        .collect::<Vec<String>>()
+        .join(",");
+
+    let query = format!("INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES {}", values_clause);
+    sqlx::query(&query).execute(&mut tx).await?;
 
     tx.commit().await?;
 
