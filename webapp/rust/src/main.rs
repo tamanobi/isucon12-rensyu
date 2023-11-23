@@ -1622,7 +1622,7 @@ async fn competition_ranking_handler(
     // player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
     let _fl = flock_by_tenant_id(v.tenant_id).await?;
     // let mut tx = tenant_db.begin().await?;
-    let pss: Vec<PlayerScoreRow> = sqlx::query_as("SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? ORDER BY row_num DESC")
+    let pss: Vec<PlayerScoreRow> = sqlx::query_as("SELECT *, MAX(updated_at) FROM player_score WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id ORDER BY row_num DESC")
         .bind(tenant.id)
         .bind(&competition_id)
         .fetch_all(&mut tenant_db)
