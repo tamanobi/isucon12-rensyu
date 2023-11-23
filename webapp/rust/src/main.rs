@@ -1204,7 +1204,7 @@ async fn competition_score_handler(
 
     // DELETEしたタイミングで参照が来ると空っぽのランキングになるのでロックする
     let _fl = flock_by_tenant_id(v.tenant_id).await?;
-    let mut player_score_rows = Vec::new();
+    let mut player_score_rows: Vec<PlayerScoreRow> = Vec::new();
     for (row_num, row) in rdr.into_records().enumerate() {
         let row = row?;
         if row.len() != 2 {
