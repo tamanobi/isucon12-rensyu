@@ -1401,31 +1401,31 @@ async fn player_handler(
     };
 
     // Redisに接続
-    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
-    let mut con = client
-        .get_connection()
-        .expect("Failed to get Redis connection");
+    // let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    // let mut con = client
+    //     .get_connection()
+    //     .expect("Failed to get Redis connection");
 
-    let redis_key = format!("player_{}", &p.id);
-    match con.get::<&str, String>(&redis_key) {
-        Ok(result) => {
-            // println!("Value for 'my_key': {}", result);
-            if !result.is_empty() {
-                let deserialized: PlayerHandlerResult = serde_json::from_str(&result).unwrap();
-                let res = SuccessResult {
-                    status: true,
-                    data: PlayerHandlerResult {
-                        player: deserialized.player,
-                        scores: deserialized.scores,
-                    },
-                };
-                return Ok(HttpResponse::Ok().json(res));
-            }
-        }
-        Err(_) => {
-            // println!("No Cache");
-        }
-    };
+    // let redis_key = format!("player_{}", &p.id);
+    // match con.get::<&str, String>(&redis_key) {
+    //     Ok(result) => {
+    //         // println!("Value for 'my_key': {}", result);
+    //         if !result.is_empty() {
+    //             let deserialized: PlayerHandlerResult = serde_json::from_str(&result).unwrap();
+    //             let res = SuccessResult {
+    //                 status: true,
+    //                 data: PlayerHandlerResult {
+    //                     player: deserialized.player,
+    //                     scores: deserialized.scores,
+    //                 },
+    //             };
+    //             return Ok(HttpResponse::Ok().json(res));
+    //         }
+    //     }
+    //     Err(_) => {
+    //         // println!("No Cache");
+    //     }
+    // };
 
     let cs: Vec<CompetitionRow> =
         sqlx::query_as("SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at ASC")
@@ -1511,10 +1511,10 @@ async fn player_handler(
     };
 
     // キーと値のセット
-    let serialized: String = serde_json::to_string(&data).unwrap();
-    let _: () = con
-        .set_ex(&redis_key, serialized, 2)
-        .expect("Failed to set key");
+    // let serialized: String = serde_json::to_string(&data).unwrap();
+    // let _: () = con
+    //     .set_ex(&redis_key, serialized, 2)
+    //     .expect("Failed to set key");
 
     Ok(HttpResponse::Ok().json(res))
 }
