@@ -1431,7 +1431,7 @@ async fn player_handler(
     // player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
     // let _fl = flock_by_tenant_id(v.tenant_id).await?;
     // トランザクション開始
-    let mut tx = tenant_db.begin().await?;
+    // let mut tx = tenant_db.begin().await?;
     let mut pss = Vec::with_capacity(cs.len());
     for c in cs {
         // 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
@@ -1439,8 +1439,8 @@ async fn player_handler(
             .bind(v.tenant_id)
             .bind(c.id)
             .bind(&p.id)
-            // .fetch_optional(&mut tenant_db)
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut tenant_db)
+            // .fetch_optional(&mut tx)
             .await?;
         if let Some(ps) = ps {
             pss.push(ps);
@@ -1450,7 +1450,7 @@ async fn player_handler(
 
     let mut psds = Vec::with_capacity(pss.len());
     for ps in pss {
-        let comp = retrieve_competition(&mut tx, &ps.competition_id).await?;
+        let comp = retrieve_competition(&mut tenant_db, &ps.competition_id).await?;
         if comp.is_none() {
             return Err(Error::Internal("error retrieve_competition".into()));
         }
@@ -1461,7 +1461,7 @@ async fn player_handler(
         });
     }
 
-    tx.commit().await?;
+    // tx.commit().await?;
 
     let data = PlayerHandlerResult {
         player: PlayerDetail {
@@ -1591,11 +1591,15 @@ async fn competition_ranking_handler(
 
     // player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
     let _fl = flock_by_tenant_id(v.tenant_id).await?;
+    // let mut tx = tenant_db.begin().await?;
     let pss: Vec<PlayerScoreRow> = sqlx::query_as("SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? ORDER BY row_num DESC")
         .bind(tenant.id)
         .bind(&competition_id)
         .fetch_all(&mut tenant_db)
+        // .fetch_all(&mut tx)
         .await?;
+    // tx.commit().await?;
+
     let mut ranks = Vec::with_capacity(pss.len());
     let mut scored_player_set = HashSet::with_capacity(pss.len());
     for ps in pss {
@@ -1618,6 +1622,7 @@ async fn competition_ranking_handler(
             row_num: ps.row_num,
         })
     }
+
     ranks.sort_by(|a, b| b.score.cmp(&a.score).then(a.row_num.cmp(&b.row_num)));
     let mut paged_ranks = Vec::with_capacity(100);
     for (i, rank) in ranks.into_iter().enumerate() {
