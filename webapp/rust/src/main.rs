@@ -1449,14 +1449,30 @@ async fn player_handler(
     }
 
     let mut psds = Vec::with_capacity(pss.len());
+    // for ps in pss {
+    //     let comp = retrieve_competition(&mut tenant_db, &ps.competition_id).await?;
+    //     if comp.is_none() {
+    //         return Err(Error::Internal("error retrieve_competition".into()));
+    //     }
+    //     let comp = comp.unwrap();
+    //     psds.push(PlayerScoreDetail {
+    //         competition_title: comp.title,
+    //         score: ps.score,
+    //     });
+    // }
+
+    let ids = pss
+        .iter()
+        .map(|ps| ps.competition_id.clone())
+        .collect::<String>();
+    let hoge: Vec<CompetitionRow> = sqlx::query_as("SELECT * FROM competition WHERE id IN ?")
+        .bind(ids)
+        .fetch_all(&mut tenant_db)
+        .await?;
     for ps in pss {
-        let comp = retrieve_competition(&mut tenant_db, &ps.competition_id).await?;
-        if comp.is_none() {
-            return Err(Error::Internal("error retrieve_competition".into()));
-        }
-        let comp = comp.unwrap();
+        let comp = hoge.iter().find(|a| a.id == ps.competition_id).unwrap();
         psds.push(PlayerScoreDetail {
-            competition_title: comp.title,
+            competition_title: comp.title.clone(),
             score: ps.score,
         });
     }
@@ -1857,4 +1873,3 @@ async fn initialize_handler() -> Result<HttpResponse, Error> {
         ))
     }
 }
-
