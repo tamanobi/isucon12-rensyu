@@ -136,8 +136,8 @@ async fn create_tenant_db(id: i64) -> Result<(), Error> {
 }
 
 // システム全体で一意なIDを生成する
-async fn dispense_id(admin_db: &sqlx::MySqlPool) -> sqlx::Result<String> {
-    Uuid::new_v4()
+async fn dispense_id(_admin_db: &sqlx::MySqlPool) -> sqlx::Result<String> {
+    Ok(Uuid::new_v4().to_string())
 
     // let mut last_err = None;
     // for _ in 1..100 {
