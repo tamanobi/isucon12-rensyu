@@ -1627,42 +1627,35 @@ async fn competition_ranking_handler(
         .fetch_one(&**admin_db)
         .await?;
 
-    sqlx::query("INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(&v.player_id)
-        .bind(tenant.id)
-        .bind(&competition_id)
-        .bind(now)
-        .bind(now)
-        .execute(&**admin_db)
-        .await?;
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
 
-    // // Redisに接続
-    // let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
-    // let mut con = client
-    //     .get_connection()
-    //     .expect("Failed to get Redis connection");
+    // 最初の1件しかアクセスログはいらないようなのでキャッシュがあったらINSERTしない
+    let redis_key = format!("ranking_{}_{}", &competition_id, &v.player_id);
+    match con.get::<&str, String>(&redis_key) {
+        Ok(result) => {
+            // Cacheがあるなら何もしない
+            // println!("Value for 'my_key': {}", result);
+        }
+        Err(_) => {
+            sqlx::query("INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(&v.player_id)
+            .bind(tenant.id)
+            .bind(&competition_id)
+            .bind(now)
+            .bind(now)
+            .execute(&**admin_db)
+            .await?;
 
-    // let redis_key = format!("ranking_{}_{}", &competition_id, &v.player_id);
-    // match con.get::<&str, String>(&redis_key) {
-    //     Ok(result) => {
-    //         // println!("Value for 'my_key': {}", result);
-    //         if !result.is_empty() {
-    //             let deserialized: CompetitionRankingHandlerResult =
-    //                 serde_json::from_str(&result).unwrap();
-    //             let res = SuccessResult {
-    //                 status: true,
-    //                 data: CompetitionRankingHandlerResult {
-    //                     competition: deserialized.competition,
-    //                     ranks: deserialized.ranks,
-    //                 },
-    //             };
-    //             return Ok(HttpResponse::Ok().json(res));
-    //         }
-    //     }
-    //     Err(_) => {
-    //         // println!("No Cache");
-    //     }
-    // };
+            // すでにINSERTしていることをキャッシュ
+            let _: () = con
+                .set_ex(&redis_key, "1", 60) // ベンチマークの分60秒くらいだけキャッシュ
+                .expect("Failed to set key");
+        }
+    };
 
     let rank_after = query.rank_after.unwrap_or(0);
 
@@ -1732,12 +1725,6 @@ async fn competition_ranking_handler(
         status: true,
         data: &data,
     };
-
-    // キーと値のセット
-    // let serialized: String = serde_json::to_string(&data).unwrap();
-    // let _: () = con
-    //     .set_ex(&redis_key, serialized, 2)
-    //     .expect("Failed to set key");
 
     Ok(HttpResponse::Ok().json(res))
 }
