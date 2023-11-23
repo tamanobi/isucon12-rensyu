@@ -700,19 +700,40 @@ async fn billing_report_by_competition(
         return Err(Error::Internal("error retrieve_competition".into()));
     }
     let comp = comp.unwrap();
-    let vhs: Vec<VisitHistorySummaryRow> = sqlx::query_as("SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id")
-        .bind(tenant_id)
-        .bind(&comp.id)
-        .fetch_all(admin_db)
-        .await?;
+    // let vhs: Vec<VisitHistorySummaryRow> = sqlx::query_as("SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id")
+    //     .bind(tenant_id)
+    //     .bind(&comp.id)
+    //     .fetch_all(admin_db)
+    //     .await?;
+
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
+
+    // キーから値を取得
+    let redis_key = format!("ranking_{}", &competition_id);
+    let deserialized = match con.get::<&str, String>(&redis_key) {
+        Ok(result) => {
+            // println!("Value for 'my_key': {}", result);
+            if !result.is_empty() {
+                let deserialized: Vec<Hoge> = serde_json::from_str(&result).unwrap();
+                deserialized
+            } else {
+                vec![]
+            }
+        }
+        _ => vec![],
+    };
 
     let mut billing_map = HashMap::new();
-    for vh in vhs {
+    for vh in deserialized {
         // competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
-        if comp.finished_at.is_some() && comp.finished_at.unwrap() < vh.min_created_at {
+        if comp.finished_at.is_some() && comp.finished_at.unwrap() < vh.a {
             continue;
         }
-        billing_map.insert(vh.player_id, "visitor");
+        billing_map.insert(vh.p, "visitor");
     }
 
     // 多分トランザクションはるとかしたほうがいい
@@ -1584,6 +1605,12 @@ struct CompetitionRankingHandlerQuery {
     rank_after: Option<i64>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Hoge {
+    p: String,
+    a: i64,
+}
+
 // 参加者向けAPI
 // GET /api/player/competition/:competition_id/ranking
 // 大会ごとのランキングを取得する
@@ -1633,26 +1660,44 @@ async fn competition_ranking_handler(
         .get_connection()
         .expect("Failed to get Redis connection");
 
-    // 最初の1件しかアクセスログはいらないようなのでキャッシュがあったらINSERTしない
-    let redis_key = format!("ranking_{}_{}", &competition_id, &v.player_id);
+    let redis_key = format!("ranking_{}", &competition_id);
     match con.get::<&str, String>(&redis_key) {
         Ok(result) => {
-            // Cacheがあるなら何もしない
             // println!("Value for 'my_key': {}", result);
+            if !result.is_empty() {
+                let mut deserialized: Vec<Hoge> = serde_json::from_str(&result).unwrap();
+                let has = deserialized.iter().find(|d| d.p == v.player_id);
+                if has.is_none() {
+                    let hoge = Hoge {
+                        p: v.player_id,
+                        a: now,
+                    };
+                    deserialized.push(hoge);
+                    let serialized: String = serde_json::to_string(&deserialized).unwrap();
+                    let _: () = con
+                        .set_ex(&redis_key, serialized, 60) // ベンチマークの分60秒くらいだけキャッシュ
+                        .expect("Failed to set key");
+                }
+            }
         }
         Err(_) => {
-            sqlx::query("INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-            .bind(&v.player_id)
-            .bind(tenant.id)
-            .bind(&competition_id)
-            .bind(now)
-            .bind(now)
-            .execute(&**admin_db)
-            .await?;
+            // sqlx::query("INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+            // .bind(&v.player_id)
+            // .bind(tenant.id)
+            // .bind(&competition_id)
+            // .bind(now)
+            // .bind(now)
+            // .execute(&**admin_db)
+            // .await?;
 
-            // すでにINSERTしていることをキャッシュ
+            let hoge = Hoge {
+                p: v.player_id,
+                a: now,
+            };
+            let data = vec![hoge];
+            let serialized: String = serde_json::to_string(&data).unwrap();
             let _: () = con
-                .set_ex(&redis_key, "1", 60) // ベンチマークの分60秒くらいだけキャッシュ
+                .set_ex(&redis_key, serialized, 60) // ベンチマークの分60秒くらいだけキャッシュ
                 .expect("Failed to set key");
         }
     };
