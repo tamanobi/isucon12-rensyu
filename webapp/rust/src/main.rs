@@ -331,12 +331,14 @@ async fn parse_viewer(admin_db: &sqlx::MySqlPool, request: &HttpRequest) -> Resu
     let cookie = cookie.unwrap();
     let token_str = cookie.value();
 
-    let key_filename = get_env("ISUCON_JWT_KEY_FILE", "../public.pem");
-    let key_src = fs::read(&key_filename).await.map_err(|e| {
-        Error::Internal(format!("error fs::read: key_filename={}: {}", key_filename, e).into())
-    })?;
+    // let key_filename = get_env("ISUCON_JWT_KEY_FILE", "../public.pem");
 
-    let key = jsonwebtoken::DecodingKey::from_rsa_pem(&key_src).map_err(|e| {
+    let key_src = include_str!(r"../../public.pem");
+    // let key_src = fs::read(&key_filename).await.map_err(|e| {
+    //     Error::Internal(format!("error fs::read: key_filename={}: {}", key_filename, e).into())
+    // })?;
+
+    let key = jsonwebtoken::DecodingKey::from_rsa_pem(key_src.as_bytes()).map_err(|e| {
         Error::Internal(format!("error jsonwebtoken::DecodingKey::from_rsa_pem: {}", e).into())
     })?;
 
@@ -1465,16 +1467,28 @@ async fn player_handler(
         .iter()
         .map(|ps| ps.competition_id.clone())
         .collect::<String>();
-    let hoge: Vec<CompetitionRow> = sqlx::query_as("SELECT * FROM competition WHERE id IN ?")
-        .bind(ids)
-        .fetch_all(&mut tenant_db)
-        .await?;
+    let hoge: Result<Vec<CompetitionRow>, sqlx::Error> =
+        sqlx::query_as("SELECT * FROM competition WHERE id IN (?)")
+            .bind(ids)
+            .fetch_all(&mut tenant_db)
+            .await;
+    if hoge.is_err() {
+        return Err(Error::Internal("error retrieve_competition".into()));
+    }
+
     for ps in pss {
-        let comp = hoge.iter().find(|a| a.id == ps.competition_id).unwrap();
-        psds.push(PlayerScoreDetail {
-            competition_title: comp.title.clone(),
-            score: ps.score,
-        });
+        if let Ok(piyo) = &hoge {
+            let comp = piyo.iter().find(|a| a.id == ps.competition_id);
+            match comp {
+                Some(c) => {
+                    psds.push(PlayerScoreDetail {
+                        competition_title: c.title.clone(),
+                        score: ps.score,
+                    });
+                }
+                None => {}
+            }
+        }
     }
 
     // tx.commit().await?;
