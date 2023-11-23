@@ -717,7 +717,7 @@ async fn billing_report_by_competition(
 
     // 多分トランザクションはるとかしたほうがいい
     // player_scoreを読んでいる時に更新が走ると不整合が起こるのでロックを取得する
-    let _fl = flock_by_tenant_id(tenant_id).await?;
+    // let _fl = flock_by_tenant_id(tenant_id).await?;
 
     // スコアを登録した参加者のIDを取得する
     sqlx::query_as(
