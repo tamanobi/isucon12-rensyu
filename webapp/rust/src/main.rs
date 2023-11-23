@@ -1,4 +1,5 @@
-#![allow(dead_code)]
+#![allow(dead_code, clippy::single_match)]
+extern crate redis;
 use actix_multipart::Multipart;
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
@@ -7,6 +8,7 @@ use bytes::BytesMut;
 use futures_util::stream::StreamExt as _;
 use futures_util::stream::TryStreamExt as _;
 use lazy_static::lazy_static;
+use redis::{Client, Commands};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::{MySqlConnectOptions, MySqlDatabaseError};
@@ -664,7 +666,7 @@ fn validate_tenant_name(name: &str) -> Result<(), Error> {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct BillingReport {
     competition_id: String,
     competition_title: String,
@@ -838,7 +840,7 @@ async fn tenants_billing_handler(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PlayerDetail {
     id: String,
     display_name: String,
@@ -1009,7 +1011,7 @@ async fn player_disqualified_handler(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CompetitionDetail {
     id: String,
     title: String,
@@ -1292,17 +1294,56 @@ async fn billing_handler(
 
     let mut tenant_db = connect_to_tenant_db(v.tenant_id).await?;
 
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
+
+    // キーから値を取得
+    let redis_key = format!("billing_{}", v.tenant_id);
+    match con.get::<&str, String>(&redis_key) {
+        Ok(result) => {
+            // println!("Value for 'my_key': {}", result);
+            if !result.is_empty() {
+                let deserialized: Vec<BillingReport> = serde_json::from_str(&result).unwrap();
+                let res = SuccessResult {
+                    status: true,
+                    data: BillingHandlerResult {
+                        reports: deserialized,
+                    },
+                };
+                return Ok(HttpResponse::Ok().json(res));
+            }
+        }
+        Err(_) => {
+            // println!("No Cache");
+        }
+    };
+
     let cs: Vec<CompetitionRow> =
         sqlx::query_as("SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at DESC")
             .bind(v.tenant_id)
             .fetch_all(&mut tenant_db)
             .await?;
-    let mut tbrs = Vec::with_capacity(cs.len());
+    let mut tbrs: Vec<BillingReport> = Vec::with_capacity(cs.len());
     for comp in cs {
         let report =
             billing_report_by_competition(&admin_db, &mut tenant_db, v.tenant_id, &comp.id).await?;
         tbrs.push(report);
     }
+
+    // キーと値のセット
+    let serialized: String = serde_json::to_string(&tbrs).unwrap();
+    let _: () = con
+        .set_ex(&redis_key, serialized, 2)
+        .expect("Failed to set key");
+
+    // let _: () = con
+    //     .set("my_key", "Hello, Redis!")
+    //     .expect("Failed to set key");
+
+    // con.json_set("a", path, b).expect("aaaaaaa");
 
     let res = SuccessResult {
         status: true,
@@ -1311,13 +1352,13 @@ async fn billing_handler(
     Ok(HttpResponse::Ok().json(res))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PlayerScoreDetail {
     competition_title: String,
     score: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PlayerHandlerResult {
     player: PlayerDetail,
     scores: Vec<PlayerScoreDetail>,
@@ -1353,6 +1394,34 @@ async fn player_handler(
             ));
         }
     };
+
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
+
+    let redis_key = format!("player_{}", &p.id);
+    match con.get::<&str, String>(&redis_key) {
+        Ok(result) => {
+            // println!("Value for 'my_key': {}", result);
+            if !result.is_empty() {
+                let deserialized: PlayerHandlerResult = serde_json::from_str(&result).unwrap();
+                let res = SuccessResult {
+                    status: true,
+                    data: PlayerHandlerResult {
+                        player: deserialized.player,
+                        scores: deserialized.scores,
+                    },
+                };
+                return Ok(HttpResponse::Ok().json(res));
+            }
+        }
+        Err(_) => {
+            // println!("No Cache");
+        }
+    };
+
     let cs: Vec<CompetitionRow> =
         sqlx::query_as("SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at ASC")
             .bind(v.tenant_id)
@@ -1360,7 +1429,9 @@ async fn player_handler(
             .await?;
 
     // player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
-    let _fl = flock_by_tenant_id(v.tenant_id).await?;
+    // let _fl = flock_by_tenant_id(v.tenant_id).await?;
+    // トランザクション開始
+    let mut tx = tenant_db.begin().await?;
     let mut pss = Vec::with_capacity(cs.len());
     for c in cs {
         // 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
@@ -1368,7 +1439,8 @@ async fn player_handler(
             .bind(v.tenant_id)
             .bind(c.id)
             .bind(&p.id)
-            .fetch_optional(&mut tenant_db)
+            // .fetch_optional(&mut tenant_db)
+            .fetch_optional(&mut tx)
             .await?;
         if let Some(ps) = ps {
             pss.push(ps);
@@ -1378,7 +1450,7 @@ async fn player_handler(
 
     let mut psds = Vec::with_capacity(pss.len());
     for ps in pss {
-        let comp = retrieve_competition(&mut tenant_db, &ps.competition_id).await?;
+        let comp = retrieve_competition(&mut tx, &ps.competition_id).await?;
         if comp.is_none() {
             return Err(Error::Internal("error retrieve_competition".into()));
         }
@@ -1389,31 +1461,42 @@ async fn player_handler(
         });
     }
 
+    tx.commit().await?;
+
+    let data = PlayerHandlerResult {
+        player: PlayerDetail {
+            id: p.id,
+            display_name: p.display_name,
+            is_disqualified: p.is_disqualified,
+        },
+        scores: psds,
+    };
+
     let res = SuccessResult {
         status: true,
-        data: PlayerHandlerResult {
-            player: PlayerDetail {
-                id: p.id,
-                display_name: p.display_name,
-                is_disqualified: p.is_disqualified,
-            },
-            scores: psds,
-        },
+        data: &data,
     };
+
+    // キーと値のセット
+    let serialized: String = serde_json::to_string(&data).unwrap();
+    let _: () = con
+        .set_ex(&redis_key, serialized, 2)
+        .expect("Failed to set key");
+
     Ok(HttpResponse::Ok().json(res))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CompetitionRank {
     rank: i64,
     score: i64,
     player_id: String,
     player_display_name: String,
-    #[serde(skip_serializing)]
+    #[serde(skip)]
     row_num: i64, // APIレスポンスのJSONには含まれない
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CompetitionRankingHandlerResult {
     competition: CompetitionDetail,
     ranks: Vec<CompetitionRank>,
@@ -1468,13 +1551,41 @@ async fn competition_ranking_handler(
         .await?;
 
     sqlx::query("INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(v.player_id)
+        .bind(&v.player_id)
         .bind(tenant.id)
         .bind(&competition_id)
         .bind(now)
         .bind(now)
         .execute(&**admin_db)
         .await?;
+
+    // // Redisに接続
+    // let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    // let mut con = client
+    //     .get_connection()
+    //     .expect("Failed to get Redis connection");
+
+    // let redis_key = format!("ranking_{}_{}", &competition_id, &v.player_id);
+    // match con.get::<&str, String>(&redis_key) {
+    //     Ok(result) => {
+    //         // println!("Value for 'my_key': {}", result);
+    //         if !result.is_empty() {
+    //             let deserialized: CompetitionRankingHandlerResult =
+    //                 serde_json::from_str(&result).unwrap();
+    //             let res = SuccessResult {
+    //                 status: true,
+    //                 data: CompetitionRankingHandlerResult {
+    //                     competition: deserialized.competition,
+    //                     ranks: deserialized.ranks,
+    //                 },
+    //             };
+    //             return Ok(HttpResponse::Ok().json(res));
+    //         }
+    //     }
+    //     Err(_) => {
+    //         // println!("No Cache");
+    //     }
+    // };
 
     let rank_after = query.rank_after.unwrap_or(0);
 
@@ -1526,17 +1637,25 @@ async fn competition_ranking_handler(
         }
     }
 
+    let data = CompetitionRankingHandlerResult {
+        competition: CompetitionDetail {
+            id: competition.id,
+            title: competition.title,
+            is_finished: competition.finished_at.is_some(),
+        },
+        ranks: paged_ranks,
+    };
+
     let res = SuccessResult {
         status: true,
-        data: CompetitionRankingHandlerResult {
-            competition: CompetitionDetail {
-                id: competition.id,
-                title: competition.title,
-                is_finished: competition.finished_at.is_some(),
-            },
-            ranks: paged_ranks,
-        },
+        data: &data,
     };
+
+    // キーと値のセット
+    // let serialized: String = serde_json::to_string(&data).unwrap();
+    // let _: () = con
+    //     .set_ex(&redis_key, serialized, 2)
+    //     .expect("Failed to set key");
 
     Ok(HttpResponse::Ok().json(res))
 }
@@ -1733,3 +1852,4 @@ async fn initialize_handler() -> Result<HttpResponse, Error> {
         ))
     }
 }
+

@@ -15,8 +15,10 @@ jsonwebtoken = "8"
 lazy_static = "1"
 listenfd = "1"
 nix = "0.24"
+redis = { version = "0.20.0" }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.108"
 sqlx = { version = "0.6", default-features = false, features = ["macros", "runtime-actix-rustls", "mysql", "sqlite"] }
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "process"] }
