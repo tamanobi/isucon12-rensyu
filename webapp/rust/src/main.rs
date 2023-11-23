@@ -1440,7 +1440,7 @@ async fn player_handler(
     // let mut pss = Vec::with_capacity(cs.len());
 
     let cs_ids = cs.iter().map(|c| c.id.to_string()).collect::<String>();
-    let pss: Vec<PlayerScoreRow> = sqlx::query_as("SELECT *, MAX(row_num) FROM player_score WHERE tenant_id = ? AND competition_id IN (?) AND player_id = ? GROUP BY tenant_id, competition_id, player_id")
+    let pss: Vec<PlayerScoreRow> = sqlx::query_as("SELECT *, MAX(row_num) FROM player_score WHERE tenant_id = ? AND competition_id IN (?) AND player_id = ? GROUP BY competition_id")
         .bind(v.tenant_id)
         .bind(cs_ids)
         .bind(&p.id)
