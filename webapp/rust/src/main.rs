@@ -1437,21 +1437,31 @@ async fn player_handler(
     // let _fl = flock_by_tenant_id(v.tenant_id).await?;
     // トランザクション開始
     // let mut tx = tenant_db.begin().await?;
-    let mut pss = Vec::with_capacity(cs.len());
-    for c in cs {
-        // 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
-        let ps: Option<PlayerScoreRow> = sqlx::query_as("SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1")
-            .bind(v.tenant_id)
-            .bind(c.id)
-            .bind(&p.id)
-            .fetch_optional(&mut tenant_db)
-            // .fetch_optional(&mut tx)
-            .await?;
-        if let Some(ps) = ps {
-            pss.push(ps);
-        }
-        // 行がない = スコアが記録されてない
-    }
+    // let mut pss = Vec::with_capacity(cs.len());
+
+    let cs_ids = cs.iter().map(|c| c.id.to_string()).collect::<String>();
+    let pss: Vec<PlayerScoreRow> = sqlx::query_as("SELECT *, MAX(row_num) FROM player_score WHERE tenant_id = ? AND competition_id IN (?) AND player_id = ? GROUP BY tenant_id, competition_id, player_id")
+        .bind(v.tenant_id)
+        .bind(cs_ids)
+        .bind(&p.id)
+        .fetch_all(&mut tenant_db)
+        .await?;
+
+    // for c in cs {
+    // 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
+    // let ps: Option<PlayerScoreRow> = sqlx::query_as("SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1")
+    //     .bind(v.tenant_id)
+    //     .bind(c.id)
+    //     .bind(&p.id)
+    //     .fetch_optional(&mut tenant_db)
+    //     // .fetch_optional(&mut tx)
+    //     .await?;
+
+    // if let Some(ps) = pss2.iter().find(|ps2| ps2.competition_id == c.id) {
+    //     pss.push(ps);
+    // }
+    // 行がない = スコアが記録されてない
+    // }
 
     let mut psds = Vec::with_capacity(pss.len());
     // for ps in pss {
