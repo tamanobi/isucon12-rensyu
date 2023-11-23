@@ -1274,7 +1274,7 @@ async fn competition_score_handler(
         .iter()
         .map(|ps| {
             format!(
-                "({}, {}, {}, {}, {}, {}, {}, {})",
+                "({}, {}, '{}', '{}', {}, {}, {}, {})",
                 ps.id,
                 ps.tenant_id,
                 ps.player_id,
