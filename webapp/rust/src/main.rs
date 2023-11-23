@@ -719,13 +719,15 @@ async fn billing_report_by_competition(
     // player_scoreを読んでいる時に更新が走ると不整合が起こるのでロックを取得する
     // let _fl = flock_by_tenant_id(tenant_id).await?;
 
+    let mut tx = tenant_db.begin().await?;
+
     // スコアを登録した参加者のIDを取得する
     sqlx::query_as(
         "SELECT DISTINCT(player_id) FROM player_score WHERE tenant_id = ? AND competition_id = ?",
     )
     .bind(tenant_id)
     .bind(&comp.id)
-    .fetch_all(tenant_db)
+    .fetch_all(&mut tx)
     .await?
     .into_iter()
     .for_each(|(ps,): (String,)| {
@@ -745,6 +747,9 @@ async fn billing_report_by_competition(
             }
         }
     }
+
+    tx.commit();
+
     Ok(BillingReport {
         competition_id: comp.id,
         competition_title: comp.title,
