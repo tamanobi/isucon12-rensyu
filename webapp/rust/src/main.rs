@@ -748,7 +748,7 @@ async fn billing_report_by_competition(
         }
     }
 
-    tx.commit();
+    tx.commit().await?;
 
     Ok(BillingReport {
         competition_id: comp.id,
