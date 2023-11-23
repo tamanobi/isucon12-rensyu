@@ -700,11 +700,6 @@ async fn billing_report_by_competition(
         return Err(Error::Internal("error retrieve_competition".into()));
     }
     let comp = comp.unwrap();
-    // let vhs: Vec<VisitHistorySummaryRow> = sqlx::query_as("SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id")
-    //     .bind(tenant_id)
-    //     .bind(&comp.id)
-    //     .fetch_all(admin_db)
-    //     .await?;
 
     // Redisに接続
     let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
@@ -724,7 +719,19 @@ async fn billing_report_by_competition(
                 vec![]
             }
         }
-        _ => vec![],
+        _ => {
+            let vhs: Vec<VisitHistorySummaryRow> = sqlx::query_as("SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id")
+            .bind(tenant_id)
+            .bind(&comp.id)
+            .fetch_all(admin_db)
+            .await?;
+            vhs.iter()
+                .map(|vh| Hoge {
+                    p: vh.player_id.to_string(),
+                    a: vh.min_created_at,
+                })
+                .collect::<Vec<Hoge>>()
+        }
     };
 
     let mut billing_map = HashMap::new();
