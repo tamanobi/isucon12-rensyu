@@ -1333,6 +1333,15 @@ async fn competition_score_handler(
 
     tx.commit().await?;
 
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
+
+    let redis_key_report = format!("ranking_report_{}", &competition_id);
+    con.del::<String, ()>(redis_key_report).unwrap();
+
     Ok(HttpResponse::Ok().json(SuccessResult {
         status: true,
         data: ScoreHandlerResult { rows },
@@ -1641,6 +1650,32 @@ async fn competition_ranking_handler(
 
     let (competition_id,) = params.into_inner();
 
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
+
+    let redis_key_report = format!("ranking_report_{}", &competition_id);
+    match con.get::<&str, String>(&redis_key_report) {
+        Ok(result) => {
+            if !result.is_empty() {
+                let deserialized: CompetitionRankingHandlerResult =
+                    serde_json::from_str(&result).unwrap();
+                let res = SuccessResult {
+                    status: true,
+                    data: CompetitionRankingHandlerResult {
+                        competition: deserialized.competition,
+                        ranks: deserialized.ranks,
+                    },
+                };
+
+                return Ok(HttpResponse::Ok().json(res));
+            }
+        }
+        _ => {}
+    }
+
     // 大会の存在確認
     let competition = match retrieve_competition(&mut tenant_db, &competition_id).await? {
         Some(c) => c,
@@ -1660,12 +1695,6 @@ async fn competition_ranking_handler(
         .bind(v.tenant_id)
         .fetch_one(&**admin_db)
         .await?;
-
-    // Redisに接続
-    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
-    let mut con = client
-        .get_connection()
-        .expect("Failed to get Redis connection");
 
     let redis_key = format!("ranking_{}", &competition_id);
     match con.get::<&str, String>(&redis_key) {
@@ -1777,6 +1806,11 @@ async fn competition_ranking_handler(
         status: true,
         data: &data,
     };
+
+    let serialized: String = serde_json::to_string(&data).unwrap();
+    let _: () = con
+        .set_ex(&redis_key_report, serialized, 60) // ベンチマークの分60秒くらいだけキャッシュ
+        .expect("Failed to set key");
 
     Ok(HttpResponse::Ok().json(res))
 }
