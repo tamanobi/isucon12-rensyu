@@ -1665,10 +1665,6 @@ async fn competition_ranking_handler(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
-    let tenant: TenantRow = sqlx::query_as("SELECT * FROM tenant WHERE id = ?")
-        .bind(v.tenant_id)
-        .fetch_one(&**admin_db)
-        .await?;
 
     // Redisに接続
     let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
@@ -1739,6 +1735,11 @@ async fn competition_ranking_handler(
         }
         _ => {}
     }
+
+    let tenant: TenantRow = sqlx::query_as("SELECT * FROM tenant WHERE id = ?")
+        .bind(v.tenant_id)
+        .fetch_one(&**admin_db)
+        .await?;
 
     let rank_after = query.rank_after.unwrap_or(0);
 
