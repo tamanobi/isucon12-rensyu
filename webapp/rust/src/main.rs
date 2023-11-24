@@ -1661,6 +1661,8 @@ async fn competition_ranking_handler(
         }
     };
 
+    let rank_after = query.rank_after.unwrap_or(0);
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1719,7 +1721,7 @@ async fn competition_ranking_handler(
     let redis_key_report = format!("ranking_report_{}", &competition_id);
     match con.get::<&str, String>(&redis_key_report) {
         Ok(result) => {
-            if !result.is_empty() {
+            if !result.is_empty() && rank_after != 0 {
                 let deserialized: CompetitionRankingHandlerResult =
                     serde_json::from_str(&result).unwrap();
                 let res = SuccessResult {
@@ -1740,8 +1742,6 @@ async fn competition_ranking_handler(
         .bind(v.tenant_id)
         .fetch_one(&**admin_db)
         .await?;
-
-    let rank_after = query.rank_after.unwrap_or(0);
 
     // player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
     // let _fl = flock_by_tenant_id(v.tenant_id).await?;
