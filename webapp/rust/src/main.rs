@@ -1143,6 +1143,39 @@ async fn competition_finish_handler(
         ));
     }
 
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
+
+    // キーから値を取得
+    let redis_key = format!("billing_{}", v.tenant_id);
+
+    let cs: Vec<CompetitionRow> =
+        sqlx::query_as("SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at DESC")
+            .bind(v.tenant_id)
+            .fetch_all(&mut tenant_db)
+            .await?;
+    let mut tbrs: Vec<BillingReport> = Vec::with_capacity(cs.len());
+    for comp in cs {
+        let report =
+            billing_report_by_competition(&admin_db, &mut tenant_db, v.tenant_id, &comp.id).await?;
+        tbrs.push(report);
+    }
+
+    // キーと値のセット
+    let serialized: String = serde_json::to_string(&tbrs).unwrap();
+    let _: () = con
+        .set_ex(&redis_key, serialized, 60)
+        .expect("Failed to set key");
+
+    // let _: () = con
+    //     .set("my_key", "Hello, Redis!")
+    //     .expect("Failed to set key");
+
+    // con.json_set("a", path, b).expect("aaaaaaa");
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1368,8 +1401,6 @@ async fn billing_handler(
         ));
     };
 
-    let mut tenant_db = connect_to_tenant_db(v.tenant_id).await?;
-
     // Redisに接続
     let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
     let mut con = client
@@ -1396,36 +1427,10 @@ async fn billing_handler(
             // println!("No Cache");
         }
     };
-
-    let cs: Vec<CompetitionRow> =
-        sqlx::query_as("SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at DESC")
-            .bind(v.tenant_id)
-            .fetch_all(&mut tenant_db)
-            .await?;
-    let mut tbrs: Vec<BillingReport> = Vec::with_capacity(cs.len());
-    for comp in cs {
-        let report =
-            billing_report_by_competition(&admin_db, &mut tenant_db, v.tenant_id, &comp.id).await?;
-        tbrs.push(report);
-    }
-
-    // キーと値のセット
-    let serialized: String = serde_json::to_string(&tbrs).unwrap();
-    let _: () = con
-        .set_ex(&redis_key, serialized, 2)
-        .expect("Failed to set key");
-
-    // let _: () = con
-    //     .set("my_key", "Hello, Redis!")
-    //     .expect("Failed to set key");
-
-    // con.json_set("a", path, b).expect("aaaaaaa");
-
-    let res = SuccessResult {
-        status: true,
-        data: BillingHandlerResult { reports: tbrs },
-    };
-    Ok(HttpResponse::Ok().json(res))
+    Err(Error::Custom(
+        StatusCode::FORBIDDEN,
+        "role aaaaaaaaaaaaa required".into(),
+    ))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
