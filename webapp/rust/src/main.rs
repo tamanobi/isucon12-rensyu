@@ -1424,7 +1424,25 @@ async fn billing_handler(
             }
         }
         Err(_) => {
-            // println!("No Cache");
+            let mut tenant_db = connect_to_tenant_db(v.tenant_id).await?;
+            let cs: Vec<CompetitionRow> = sqlx::query_as(
+                "SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at DESC",
+            )
+            .bind(v.tenant_id)
+            .fetch_all(&mut tenant_db)
+            .await?;
+            let mut tbrs: Vec<BillingReport> = Vec::with_capacity(cs.len());
+            for comp in cs {
+                let report =
+                    billing_report_by_competition(&admin_db, &mut tenant_db, v.tenant_id, &comp.id)
+                        .await?;
+                tbrs.push(report);
+            }
+            let res = SuccessResult {
+                status: true,
+                data: BillingHandlerResult { reports: tbrs },
+            };
+            return Ok(HttpResponse::Ok().json(res));
         }
     };
     Err(Error::Custom(
