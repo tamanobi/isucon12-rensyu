@@ -1650,32 +1650,6 @@ async fn competition_ranking_handler(
 
     let (competition_id,) = params.into_inner();
 
-    // Redisに接続
-    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
-    let mut con = client
-        .get_connection()
-        .expect("Failed to get Redis connection");
-
-    let redis_key_report = format!("ranking_report_{}", &competition_id);
-    match con.get::<&str, String>(&redis_key_report) {
-        Ok(result) => {
-            if !result.is_empty() {
-                let deserialized: CompetitionRankingHandlerResult =
-                    serde_json::from_str(&result).unwrap();
-                let res = SuccessResult {
-                    status: true,
-                    data: CompetitionRankingHandlerResult {
-                        competition: deserialized.competition,
-                        ranks: deserialized.ranks,
-                    },
-                };
-
-                return Ok(HttpResponse::Ok().json(res));
-            }
-        }
-        _ => {}
-    }
-
     // 大会の存在確認
     let competition = match retrieve_competition(&mut tenant_db, &competition_id).await? {
         Some(c) => c,
@@ -1696,6 +1670,13 @@ async fn competition_ranking_handler(
         .fetch_one(&**admin_db)
         .await?;
 
+    // Redisに接続
+    let client = Client::open("redis://127.0.0.1/").expect("Failed to connect to Redis");
+    let mut con = client
+        .get_connection()
+        .expect("Failed to get Redis connection");
+
+    // アクセスログ
     let redis_key = format!("ranking_{}", &competition_id);
     match con.get::<&str, String>(&redis_key) {
         Ok(result) => {
@@ -1737,6 +1718,27 @@ async fn competition_ranking_handler(
                 .expect("Failed to set key");
         }
     };
+
+    // ランキングレポートの結果
+    let redis_key_report = format!("ranking_report_{}", &competition_id);
+    match con.get::<&str, String>(&redis_key_report) {
+        Ok(result) => {
+            if !result.is_empty() {
+                let deserialized: CompetitionRankingHandlerResult =
+                    serde_json::from_str(&result).unwrap();
+                let res = SuccessResult {
+                    status: true,
+                    data: CompetitionRankingHandlerResult {
+                        competition: deserialized.competition,
+                        ranks: deserialized.ranks,
+                    },
+                };
+
+                return Ok(HttpResponse::Ok().json(res));
+            }
+        }
+        _ => {}
+    }
 
     let rank_after = query.rank_after.unwrap_or(0);
 
