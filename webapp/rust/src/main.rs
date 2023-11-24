@@ -1721,7 +1721,7 @@ async fn competition_ranking_handler(
     let redis_key_report = format!("ranking_report_{}", &competition_id);
     match con.get::<&str, String>(&redis_key_report) {
         Ok(result) => {
-            if !result.is_empty() && rank_after != 0 {
+            if !result.is_empty() && rank_after == 0 {
                 let deserialized: CompetitionRankingHandlerResult =
                     serde_json::from_str(&result).unwrap();
                 let res = SuccessResult {
