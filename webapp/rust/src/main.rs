@@ -1547,32 +1547,32 @@ async fn player_handler(
     //     });
     // }
 
-    let ids = pss
-        .iter()
-        .map(|ps| ps.competition_id.clone())
-        .collect::<String>();
-    let hoge: Result<Vec<CompetitionRow>, sqlx::Error> =
-        sqlx::query_as("SELECT * FROM competition WHERE id IN (?)")
-            .bind(ids)
-            .fetch_all(&mut tenant_db)
-            .await;
-    if hoge.is_err() {
-        return Err(Error::Internal("error retrieve_competition".into()));
-    }
+    // let ids = pss
+    //     .iter()
+    //     .map(|ps| ps.competition_id.clone())
+    //     .collect::<String>();
+    // let hoge: Result<Vec<CompetitionRow>, sqlx::Error> =
+    //     sqlx::query_as("SELECT * FROM competition WHERE id IN (?)")
+    //         .bind(ids)
+    //         .fetch_all(&mut tenant_db)
+    //         .await;
+    // if hoge.is_err() {
+    //     return Err(Error::Internal("error retrieve_competition".into()));
+    // }
 
     for ps in pss {
-        if let Ok(piyo) = &hoge {
-            let comp = piyo.iter().find(|a| a.id == ps.competition_id);
-            match comp {
-                Some(c) => {
-                    psds.push(PlayerScoreDetail {
-                        competition_title: c.title.clone(),
-                        score: ps.score,
-                    });
-                }
-                None => {}
+        // if let Ok(piyo) = &hoge {
+        let comp = cs.iter().find(|a| a.id == ps.competition_id);
+        match comp {
+            Some(c) => {
+                psds.push(PlayerScoreDetail {
+                    competition_title: c.title.clone(),
+                    score: ps.score,
+                });
             }
+            None => {}
         }
+        // }
     }
 
     // tx.commit().await?;
